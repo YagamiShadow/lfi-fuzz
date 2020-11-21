@@ -1,3 +1,4 @@
+YOU MUST HAVE PERMISSION BEFORE USING THIS TOOL - THIS IS DEVELOPED FOR CTF USE, FOR EXAMPLE ON TRYHACKME OR HACKTHEBOX!
 # lfi-fuzz
 A python script to enumerate and attempt to get code execution from LFI vulnerabilities
 
