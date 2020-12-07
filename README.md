@@ -33,5 +33,5 @@ Finally, the script will read a list of files from the wordlist (whether that is
 If the script finds any log files, it will attempt to check if log poisoning is possible, and automatically exploit this.
 
 
-COMING SOON:
- - Fuzzing of various parameters to find one which may be able to be used for LFI
+NEW FEATURES:
+ - Fuzzing of various parameters to see other paramters are valid, and could be tested for LFI. Generally, this would be useful when your original fuzz has not been fruitful, or when working with an API of which you do not have documentation (or when testing v1 of an API when v2 exists too).
