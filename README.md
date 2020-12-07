@@ -34,4 +34,4 @@ If the script finds any log files, it will attempt to check if log poisoning is 
 
 
 COMING SOON:
- - Building in to not auto exploit the log poisoning, instead a '--shell' parameter will have to be set to enable this
+ - Fuzzing of various parameters to find one which may be able to be used for LFI
